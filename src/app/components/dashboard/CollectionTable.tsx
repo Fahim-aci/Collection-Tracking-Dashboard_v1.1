@@ -1,17 +1,32 @@
 import { useState } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
-import { useDateFilter }         from "../../../context/DateFilterContext";
-import { useCollectionSummary }  from "../../../hooks/useCollectionSummary";
+import { useDateFilter }          from "../../../context/DateFilterContext";
+import { useBusinessUnitDetails } from "../../../hooks/useBusinessUnitDetails";
+import type { BusinessUnitDetailRow } from "../../../hooks/useBusinessUnitDetails";
 
-function fmtBDT(v: number) {
-  return "BDT " + v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// ── Formatters ────────────────────────────────────────────────────────────────
+
+function fmtNum(v: number | null | undefined): string {
+  if (v == null || v === 0) return "—";
+  return v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-type SortKey = "business_name" | "deposit_amount" | "cash_amount" | "credit_amount" | "total_amount";
-type SortDir  = "asc" | "desc";
+function GrowthCell({ ratio }: { ratio: number | null }) {
+  if (ratio === null) return <span className="text-[#D0D5DD]">—</span>;
+  const isGood = ratio >= 1;
+  return (
+    <span className="font-semibold" style={{ color: isGood ? "#15803D" : "#991B1B" }}>
+      {ratio.toFixed(2)}
+    </span>
+  );
+}
 
-// ── Sub-components defined OUTSIDE CollectionTable so React doesn't remount
-//    them on every parent render (React anti-pattern fix).
+// ── Sort types ────────────────────────────────────────────────────────────────
+
+type SortKey = "business_name" | "total_amount" | "splm_total" | "total_sply" | "growth_splm_total" | "growth_sply_total";
+type SortDir = "asc" | "desc";
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 interface SortIconProps { col: SortKey; sortKey: SortKey; sortDir: SortDir; }
 function SortIcon({ col, sortKey, sortDir }: SortIconProps) {
@@ -40,15 +55,16 @@ function Th({ label, col, right, sortKey, sortDir, onSort }: ThProps) {
   );
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function CollectionTable() {
   const [sortKey, setSortKey] = useState<SortKey>("total_amount");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page,    setPage]    = useState(0);
   const PAGE_SIZE = 8;
 
-  // ── Live data ─────────────────────────────────────────────────────────────
-  const { dateRange }                          = useDateFilter();
-  const { rows: summaryRows, loading, error }  = useCollectionSummary(dateRange.dateFrom, dateRange.dateTo);
+  const { dateRange }                    = useDateFilter();
+  const { rows, loading, error }         = useBusinessUnitDetails(dateRange);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -56,7 +72,7 @@ export function CollectionTable() {
     setPage(0);
   };
 
-  const sorted = [...summaryRows].sort((a, b) => {
+  const sorted = [...rows].sort((a: BusinessUnitDetailRow, b: BusinessUnitDetailRow) => {
     if (sortKey === "business_name") {
       return sortDir === "asc"
         ? a.business_name.localeCompare(b.business_name)
@@ -67,7 +83,7 @@ export function CollectionTable() {
     return sortDir === "asc" ? av - bv : bv - av;
   });
 
-  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE) || 1;
   const pageRows   = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
@@ -77,27 +93,28 @@ export function CollectionTable() {
     >
       {/* Header */}
       <div className="px-6 py-4 border-b border-[#E4E7EC]">
-        <h3 className="text-[17px] font-semibold text-[#1D2939]">Collection Table</h3>
+        <h3 className="text-[17px] font-semibold text-[#1D2939]">Collection Summary</h3>
         <p className="text-[12px] text-[#667085] mt-0.5">All business units — Figures in Million Taka</p>
       </div>
 
       {/* Error banner */}
       {error && (
         <div className="mx-6 mt-3 px-4 py-2.5 rounded-lg bg-[#FEF3F2] border border-[#FECDCA]">
-          <span className="text-[12px] font-medium text-[#D92D20]">⚠ Failed to load collection data: {error}</span>
+          <span className="text-[12px] font-medium text-[#D92D20]">⚠ {error}</span>
         </div>
       )}
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px]">
+        <table className="w-full min-w-[700px]">
           <thead className="bg-[#F9FAFB] border-b border-[#E4E7EC]">
             <tr>
-              <Th label="SBU"     col="business_name"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-              <Th label="Deposit" col="deposit_amount"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
-              <Th label="Cash"    col="cash_amount"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
-              <Th label="Credit"  col="credit_amount"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
-              <Th label="Total"   col="total_amount"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
+              <Th label="SBU"         col="business_name"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <Th label="Actual"      col="total_amount"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
+              <Th label="SPLM"        col="splm_total"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
+              <Th label="SPLY"        col="total_sply"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
+              <Th label="SPLM Growth" col="growth_splm_total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
+              <Th label="SPLY Growth" col="growth_sply_total" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
             </tr>
           </thead>
           <tbody className="divide-y divide-[#F2F4F7]">
@@ -105,29 +122,31 @@ export function CollectionTable() {
               Array.from({ length: PAGE_SIZE }).map((_, i) => (
                 <tr key={i} className="animate-pulse">
                   <td className="py-3 px-4"><div className="h-4 w-36 bg-[#E4E7EC] rounded" /></td>
-                  <td className="py-3 px-4 text-right"><div className="h-4 w-24 bg-[#E4E7EC] rounded ml-auto" /></td>
-                  <td className="py-3 px-4 text-right"><div className="h-4 w-24 bg-[#E4E7EC] rounded ml-auto" /></td>
-                  <td className="py-3 px-4 text-right"><div className="h-4 w-24 bg-[#E4E7EC] rounded ml-auto" /></td>
-                  <td className="py-3 px-4 text-right"><div className="h-4 w-28 bg-[#E4E7EC] rounded ml-auto" /></td>
+                  {Array.from({ length: 5 }).map((_, j) => (
+                    <td key={j} className="py-3 px-4 text-right"><div className="h-4 w-20 bg-[#E4E7EC] rounded ml-auto" /></td>
+                  ))}
                 </tr>
               ))
             ) : (
               pageRows.map(row => (
-                <tr key={row.business_id} className="hover:bg-[#F9FAFB] transition-colors group">
+                <tr key={row.business_id} className="hover:bg-[#F9FAFB] transition-colors">
                   <td className="py-3 px-4 text-[13px] text-[#344054] font-medium truncate max-w-[200px]">
                     {row.business_name}
                   </td>
-                  <td className="py-3 px-4 text-[13px] text-[#667085] text-right">
-                    {row.deposit_amount > 0 ? fmtBDT(row.deposit_amount) : <span className="text-[#D0D5DD]">—</span>}
-                  </td>
-                  <td className="py-3 px-4 text-[13px] text-[#667085] text-right">
-                    {row.cash_amount > 0 ? fmtBDT(row.cash_amount) : <span className="text-[#D0D5DD]">—</span>}
-                  </td>
-                  <td className="py-3 px-4 text-[13px] text-[#667085] text-right">
-                    {row.credit_amount > 0 ? fmtBDT(row.credit_amount) : <span className="text-[#D0D5DD]">—</span>}
-                  </td>
                   <td className="py-3 px-4 text-[13px] font-semibold text-[#1D2939] text-right">
-                    {fmtBDT(row.total_amount)}
+                    {fmtNum(row.total_amount)}
+                  </td>
+                  <td className="py-3 px-4 text-[13px] text-[#667085] text-right">
+                    {fmtNum(row.splm_total)}
+                  </td>
+                  <td className="py-3 px-4 text-[13px] text-[#667085] text-right">
+                    {fmtNum(row.total_sply)}
+                  </td>
+                  <td className="py-3 px-4 text-[13px] text-right">
+                    <GrowthCell ratio={row.growth_splm_total} />
+                  </td>
+                  <td className="py-3 px-4 text-[13px] text-right">
+                    <GrowthCell ratio={row.growth_sply_total} />
                   </td>
                 </tr>
               ))
@@ -152,7 +171,7 @@ export function CollectionTable() {
           >
             Prev
           </button>
-          {Array.from({ length: totalPages }, (_, i) => (
+          {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => (
             <button
               key={i}
               onClick={() => setPage(i)}
@@ -167,7 +186,7 @@ export function CollectionTable() {
           ))}
           <button
             onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-            disabled={page === totalPages - 1 || loading || totalPages === 0}
+            disabled={page >= totalPages - 1 || loading}
             className="h-[28px] px-3 text-[12px] font-medium text-[#344054] border border-[#E4E7EC] rounded-lg disabled:opacity-40 hover:bg-[#F9FAFB] transition-colors"
           >
             Next
