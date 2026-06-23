@@ -16,6 +16,9 @@ export interface TrendPoint {
   proj_total:    number | null;
   proj_credit:   number | null;
   proj_cash:     number | null;
+  splm_total:    number | null;
+  splm_credit:   number | null;
+  splm_cash:     number | null;
   sply_total:    number | null;
   sply_credit:   number | null;
   sply_cash:     number | null;
@@ -31,6 +34,12 @@ function fmtLabel(d: string): string {
 function shiftYear(d: string, delta: number): string {
   const dt = new Date(d);
   dt.setFullYear(dt.getFullYear() + delta);
+  return dt.toISOString().slice(0, 10);
+}
+
+function shiftMonth(d: string, delta: number): string {
+  const dt = new Date(d);
+  dt.setMonth(dt.getMonth() + delta);
   return dt.toISOString().slice(0, 10);
 }
 
@@ -70,8 +79,10 @@ export function useProjectionTrend(
     setLoading(true);
     setError(null);
 
-    const splyFrom    = shiftYear(dateFrom, -1);
-    const splyTo      = shiftYear(dateTo,   -1);
+    const splyFrom    = shiftYear(dateFrom,  -1);
+    const splyTo      = shiftYear(dateTo,    -1);
+    const splmFrom    = shiftMonth(dateFrom, -1);
+    const splmTo      = shiftMonth(dateTo,   -1);
     const filterIds   = businessIds.length > 0;
 
     async function run() {
@@ -88,6 +99,12 @@ export function useProjectionTrend(
         .gte('projection_date', dateFrom!)
         .lte('projection_date', dateTo!);
 
+      let splmQ = supabase
+        .from('collection_records')
+        .select('collection_date, credit_amount, total_cash_amount, total_amount')
+        .gte('collection_date', splmFrom)
+        .lte('collection_date', splmTo);
+
       let splyQ = supabase
         .from('collection_records')
         .select('collection_date, credit_amount, total_cash_amount, total_amount')
@@ -97,10 +114,11 @@ export function useProjectionTrend(
       if (filterIds) {
         actualQ = actualQ.in('business_id', businessIds);
         projQ   = projQ.in('business_id', businessIds);
+        splmQ   = splmQ.in('business_id', businessIds);
         splyQ   = splyQ.in('business_id', businessIds);
       }
 
-      const [aRes, pRes, sRes] = await Promise.all([actualQ, projQ, splyQ]);
+      const [aRes, pRes, mRes, sRes] = await Promise.all([actualQ, projQ, splmQ, splyQ]);
       if (cancelled) return;
       if (aRes.error) throw new Error(`Actual fetch: ${aRes.error.message}`);
 
@@ -123,6 +141,16 @@ export function useProjectionTrend(
         })),
       );
 
+      // SPLM dates shifted forward 1 month to align on the x-axis.
+      const splmMap = aggregate(
+        (mRes.data ?? []).map(r => ({
+          date:   shiftMonth(r.collection_date, 1),
+          credit: Number(r.credit_amount),
+          cash:   Number(r.total_cash_amount),
+          total:  Number(r.total_amount),
+        })),
+      );
+
       // SPLY dates are shifted forward 1 year so they align with the current
       // period on the x-axis (same calendar position, prior year value).
       const splyMap = aggregate(
@@ -142,6 +170,7 @@ export function useProjectionTrend(
         const d = cur.toISOString().slice(0, 10);
         const a = actualMap.get(d);
         const p = projMap.get(d);
+        const m = splmMap.get(d);
         const s = splyMap.get(d);
         points.push({
           date:          d,
@@ -152,6 +181,9 @@ export function useProjectionTrend(
           proj_total:    p ? (p.total)  : null,
           proj_credit:   p ? (p.credit) : null,
           proj_cash:     p ? (p.cash)   : null,
+          splm_total:    m ? (m.total)  : null,
+          splm_credit:   m ? (m.credit) : null,
+          splm_cash:     m ? (m.cash)   : null,
           sply_total:    s ? (s.total)  : null,
           sply_credit:   s ? (s.credit) : null,
           sply_cash:     s ? (s.cash)   : null,
